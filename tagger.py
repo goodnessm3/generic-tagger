@@ -10,15 +10,13 @@ class MainWindow(Frame):
     def __init__(self, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-        self.supplier_window = CodeWindow()
+        self.code_window = CodeWindow()
         self.pw = PicWindow()
         self.bw = BindingsWindow()
-        self.function_window = CodeWindow()
 
-        self.supplier_window.pack(side=LEFT)
+        self.code_window.pack(side=LEFT)
         self.pw.pack(side=LEFT)
         self.bw.pack(side=LEFT)
-        self.function_window.pack(side=LEFT)
 
 
 class PicWindow(Frame):
@@ -70,8 +68,10 @@ class CodeWindow(Frame):
 
         for x in globals():
             if callable(globals().get(x)) and not x in self._root().ignore:
-                self._root().fxn_list.append(x)
+                self._root().fxn_set.add(x)  # we are adding the name of the function, not the function itself
                 print(f"Added {x} to the function list.")
+
+        self._root().update_menus()
 
 
 
@@ -102,12 +102,15 @@ class BindingRow(Frame):
         super().__init__(*args, **kwargs)
         self.v = StringVar(self)  # stores the name of the function to be called
         self.keylabel = Button(self)
-        self.functionlabel = OptionMenu(self, self.v, self._root().fxn_list)  #
+        self.functionlabel = OptionMenu(self, self.v, ())
         self.argslist = Entry(self)  # list of args with which to call the function (string only)
 
         self.keylabel.pack(side=LEFT)
         self.functionlabel.pack(side=LEFT)
         self.argslist.pack(side=LEFT)
+
+        self._root().fxn_menus.append(self)  # register self with root to recieve menu updates
+        self._root().update_menus()
 
 
 class MyRoot(Tk):
@@ -117,8 +120,9 @@ class MyRoot(Tk):
     def __init__(self, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-        self.fxn_list = []  # list of all the functions made in the interactive text entry
+        self.fxn_set = set()  # set of the names of all the functions made in the interactive text entry
         self.ignore = set()
+        self.fxn_menus = []  # a list of BindingRows to force them to update their lists when new functions are made
 
         # first we note everything that is callable in the global namespace. Then later, when user-defined functions
         # are introduced, we will get globals(), and compare against this list. Anything not in this list is a
@@ -129,6 +133,14 @@ class MyRoot(Tk):
             if callable(globals().get(x)):
                 self.ignore.add(x)
 
+    def update_menus(self):
+
+        """Force an update of the dropdowns with all available functions"""
+
+        for x in self.fxn_menus:
+            x.functionlabel["menu"].delete(0, END)
+            for fx in self.fxn_set:
+                x.functionlabel["menu"].add_command(label=fx, command=lambda value=fx: x.v.set(value))
 
 
 root = MyRoot()
