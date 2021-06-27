@@ -1,7 +1,7 @@
 from tkinter import *
 from PIL import Image, ImageTk, UnidentifiedImageError
 from io import BytesIO
-
+import random
 
 class MainWindow(Frame):
 
@@ -13,25 +13,31 @@ class MainWindow(Frame):
 
         self._root().mw = self
 
-        self.code_window = CodeWindow()
-        self.pw = PicWindow()
-        self.bw = BindingsWindow()
+        self.pw = PicWindow(self, width=400, height=420, relief=RIDGE)
+        self.bw = BindingsWindow(self, borderwidth=5, relief=RIDGE)
+
+        self.left_frame = Frame(self)
+        self.button_frame = Frame(self.left_frame)
+        self.code_window = CodeWindow(self.left_frame, bg="red")
 
         self.gen = None  # the iterator that will provide images and captions to the PicWindow
 
+        self.control = Button(self.button_frame, text="Make function", command=self.code_window.prepare)
+        self.run = Button(self.button_frame, text="Run iterator", command=self.start_iteration)
+        self.stop = Button(self.button_frame, text="Stop iterator", command=self.stop_iteration)
+        self.apply = Button(self.button_frame, text="Apply functions", command=self.apply)
 
+        self.control.pack(side=LEFT)
+        self.run.pack(side=LEFT)
+        self.stop.pack(side=LEFT)
+        self.apply.pack(side=LEFT)
 
-        self.run = Button(text="Run iterator", command=self.start_iteration)
-        self.stop = Button(text="Stop iterator", command=self.stop_iteration)
-        self.apply = Button(text="Apply functions", command=self.apply)
-
-        self.run.pack(side=TOP)
-        self.stop.pack(side=TOP)
-        self.apply.pack(side=TOP)
-
-        self.code_window.pack(side=LEFT)
-        self.pw.pack(side=LEFT)
-        self.bw.pack(side=LEFT)
+        self.button_frame.pack(side=TOP)
+        self.code_window.pack(side=TOP, fill=BOTH, expand=YES)
+        self.left_frame.pack(side=LEFT)
+        self.pw.pack(side=LEFT, fill=BOTH, expand=YES)
+        self.pw.pack_propagate(0)  # need this otherwise size overshoots drastically, not sure why??
+        self.bw.pack(side=LEFT, fill=BOTH, expand=YES)
 
     def start_iteration(self):
 
@@ -47,7 +53,13 @@ class MainWindow(Frame):
 
     def advance_iterator(self, e):
 
-        self.pw.update_image(*next(self.gen))
+        if self.pw.history_index < -1:
+            self.pw.history_index += 1
+
+        if not self.pw.history_index == -1:
+            self.pw.update_image(None, None)  # getting an image from its internal history instead
+        else:
+            self.pw.update_image(*next(self.gen))
 
     def apply(self):
 
@@ -63,6 +75,7 @@ class PicWindow(Frame):
         self.caption = Label(self)
 
         self.history = []  # all the pictures that have been shown so we can step backwards if needed
+        self.history_index = -1
 
         self.lab.pack(side=TOP)
         self.caption.pack(side=TOP)
@@ -71,12 +84,28 @@ class PicWindow(Frame):
 
         """Expects a tuple of (PIL image, caption)"""
 
-        q = Image.open(imgbytes).resize((300,300))
-        im = ImageTk.PhotoImage(q)
-        self.history.append(im)
-        self.lab.configure(image=im, bg="green")
+        if self.history_index < -1:
+            imgbytes, capt = self.history[self.history_index]
+
+        if not type(imgbytes) == ImageTk.PhotoImage:
+            # if it *is*, it means we got this image from the history stack
+            q = Image.open(imgbytes).resize((400,400))
+            im = ImageTk.PhotoImage(q)
+        else:
+            im = imgbytes
+
+        if self.history_index == -1:
+            self.history.append((im, capt))
+        self.lab.configure(image=im)
         self.caption.configure(text=capt)
         self.current_caption = capt
+
+    def back(self):
+
+        if abs(self.history_index) == len(self.history):
+            return
+        self.history_index -= 1
+        self.update_image(None, None)
 
 
 class CodeWindow(Frame):
@@ -87,10 +116,6 @@ class CodeWindow(Frame):
 
         super().__init__(*args, **kwargs)
         self.tbox = Text(self)
-        self.control = Button(text="Make function", command=self.prepare)
-
-
-        self.control.pack(side=TOP)
         self.tbox.pack(side=TOP)
 
     def prepare(self):
@@ -116,53 +141,57 @@ class CodeWindow(Frame):
 
 
 
-
-
-
-
-
-
-
-
 class BindingsWindow(Frame):
 
     def __init__(self, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-        self.button = Button(text="+", command=self.add_button)
+        self.labels = iter(range(1, 100))
+        self.button = Button(self, text="Add binding", command=self.add_button)
         self.button.pack(side=TOP)
+        self.back_frame = Frame(self)
+        self.back_button = Button(self.back_frame, text="<", command=self.back)
+
+        self.back_button.pack(side=LEFT)
+        self.back_frame.pack(side=TOP)
 
     def add_button(self):
 
-        new = BindingRow()
-        new.pack(side=TOP)
+        new = BindingRow(self, title=str(next(self.labels)))
+        new.pack(side=TOP, fill="x")
+
+    def back(self):
+
+        self._root().event_generate("<<back>>")
 
 
 class BindingRow(Frame):
 
     def __init__(self, *args, **kwargs):
 
+        title = kwargs.pop("title")
         super().__init__(*args, **kwargs)
         self.v = StringVar(self)  # stores the name of the function to be called
-        self.keylabel = Button(self, command=self.run_command)
-        self.functionlabel = OptionMenu(self, self.v, ())
+        self.keylabel = Button(self, text=title, command=self.run_command, width=5)
+        self.functionlabel = OptionMenu(self, self.v, *self._root().fxn_set)
         self.argslist = Entry(self)  # list of args with which to call the function (string only)
 
         self.keylabel.pack(side=LEFT)
         self.functionlabel.pack(side=LEFT)
-        self.argslist.pack(side=LEFT)
+        self.argslist.pack(side=LEFT, fill="x", expand=YES)
 
         self._root().fxn_menus.append(self)  # register self with root to recieve menu updates
-        self._root().update_menus()
+        #self._root().update_menus()
 
     def run_command(self):
 
         args = [q.strip(" ") for q in self.argslist.get().split(",")]
         if args == [""]:
             args = []  # actually no args
-        fx = globals()[self.v.get()]
+        fx = self.v.get()
         self._root().append_action(fx, args)
         self._root().event_generate("<<advance>>")
+
 
 
 class MyRoot(Tk):
@@ -172,11 +201,12 @@ class MyRoot(Tk):
     def __init__(self, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-        self.fxn_set = set()  # set of the names of all the functions made in the interactive text entry
+        self.fxn_set = {" "}  # set of the names of all the functions made in the interactive text entry
         self.ignore = set()
         self.fxn_menus = []  # a list of BindingRows to force them to update their lists when new functions are made
         self.mw = None  # a reference to the main window for propagating events
         self.mapping = []  # the functions and args to be run once the tagging is complete
+        self.mapfile = open("session.txt", "w")  # write out history to a file in case something goes wrong
 
         # first we note everything that is callable in the global namespace. Then later, when user-defined functions
         # are introduced, we will get globals(), and compare against this list. Anything not in this list is a
@@ -190,15 +220,32 @@ class MyRoot(Tk):
     def setup_bindings(self):
 
         self.bind("<<advance>>", self.mw.advance_iterator)
+        self.bind("<<back>>", self.back)
 
     def update_menus(self):
 
-        """Force an update of the dropdowns with all available functions"""
-
+        """Force an update of the dropdowns with all available functions. We have to destroy and re-make the menus
+        because the commented-out code below behaves a weird way where only the last menu in the sequence will
+        be updated regardless of which menu we are selecting the option from. Can't work out why."""
+        '''
         for x in self.fxn_menus:
             x.functionlabel["menu"].delete(0, END)
             for fx in self.fxn_set:
-                x.functionlabel["menu"].add_command(label=fx, command=lambda value=fx: x.v.set(value))
+                print(id(x))
+                print(id(x.v))
+                x.functionlabel["menu"].add_command(label=fx, command=lambda fx=fx: x.v.set(fx))
+                #x.functionlabel["menu"].add_command(label=fx, command= lambda:print(fx))
+                x.v.set(str(random.randint(0,1000)))
+        '''
+
+        num = len(self.fxn_menus)
+        for x in self.fxn_menus:
+            x.destroy()
+        self.fxn_menus = []
+        for x in range(num):
+            self.mw.bw.add_button()
+
+
 
     def append_action(self, fx, args):
 
@@ -207,6 +254,12 @@ class MyRoot(Tk):
         cap = self.mw.pw.current_caption
         action = (fx, cap, *args)
         self.mapping.append(action)
+        self.mapfile.write(f"{fx}|||{cap}|||{args}\n")
+
+    def back(self, e):
+
+        self.mapfile.write("<<UNDO>>\n") # easier than trying to step back through the file
+        self.mw.pw.back()
 
     def apply(self):
 
