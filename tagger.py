@@ -3,6 +3,44 @@ from PIL import Image, ImageTk, UnidentifiedImageError
 from io import BytesIO
 import random
 
+
+class IterWrapper:
+
+    """Wraps an iterator to give it a memory, so we can step backwards using the previous() method."""
+
+    def __init__(self, iterator, maxlen=25):
+
+        self.it = iter(iterator)
+        self.maxlen = maxlen
+        self.history = []
+        self.pos = -1  # the end of the history list
+
+    def __iter__(self):
+
+        return self
+
+    def __next__(self):
+
+        if self.pos < -1:
+            self.pos += 1
+            ne = self.history[self.pos]
+        else:
+            ne = next(self.it)
+            self.history.append(ne)
+            if len(self.history) > self.maxlen:
+                self.history.pop(0)
+        return ne
+
+    def previous(self):
+
+        if self.pos > -1 * self.maxlen:
+            self.pos -= 1
+        # maximum history of maxlen items, just return the last item again if trying to go back further
+        if abs(self.pos) > len(self.history):
+            self.pos = -1 * len(self.history)
+        return self.history[self.pos]
+
+
 class MainWindow(Frame):
 
     """Top level window"""
@@ -43,7 +81,8 @@ class MainWindow(Frame):
 
         """Start sending images and captions to the image window. """
 
-        self.gen = globals()["gen"]()
+        g = globals()["gen"]()
+        self.gen = IterWrapper(g)  # wrap user-made generator to give it a memory/cache
         # the CodeWindow must define a generator called gen that yields tuples of (image, caption)
         self.advance_iterator(None)
 
@@ -53,13 +92,11 @@ class MainWindow(Frame):
 
     def advance_iterator(self, e):
 
-        if self.pw.history_index < -1:
-            self.pw.history_index += 1
+        self.pw.update_image(*next(self.gen))
 
-        if not self.pw.history_index == -1:
-            self.pw.update_image(None, None)  # getting an image from its internal history instead
-        else:
-            self.pw.update_image(*next(self.gen))
+    def previous(self):
+
+        self.pw.update_image(*self.gen.previous())
 
     def apply(self):
 
@@ -73,9 +110,8 @@ class PicWindow(Frame):
         super().__init__(*args, **kwargs)
         self.lab = Label(self)
         self.caption = Label(self)
-
-        self.history = []  # all the pictures that have been shown so we can step backwards if needed
-        self.history_index = -1
+        self.current_caption = None  # need to store it here, easier than getting it from the widget
+        self.history = []
 
         self.lab.pack(side=TOP)
         self.caption.pack(side=TOP)
@@ -84,28 +120,15 @@ class PicWindow(Frame):
 
         """Expects a tuple of (PIL image, caption)"""
 
-        if self.history_index < -1:
-            imgbytes, capt = self.history[self.history_index]
-
-        if not type(imgbytes) == ImageTk.PhotoImage:
-            # if it *is*, it means we got this image from the history stack
-            q = Image.open(imgbytes).resize((400,400))
-            im = ImageTk.PhotoImage(q)
-        else:
-            im = imgbytes
-
-        if self.history_index == -1:
-            self.history.append((im, capt))
+        q = Image.open(imgbytes).resize((300, 300))
+        im = ImageTk.PhotoImage(q)
+        self.history.append(im)  # need to hold a reference to the images or they'll be garbage collected
         self.lab.configure(image=im)
         self.caption.configure(text=capt)
         self.current_caption = capt
 
-    def back(self):
-
-        if abs(self.history_index) == len(self.history):
-            return
-        self.history_index -= 1
-        self.update_image(None, None)
+        if len(self.history) > 25:
+            self.history.pop(0)  # don't store images forever
 
 
 class CodeWindow(Frame):
@@ -138,7 +161,6 @@ class CodeWindow(Frame):
                 print(f"Added {x} to the function list.")
 
         self._root().update_menus()
-
 
 
 class BindingsWindow(Frame):
@@ -193,7 +215,6 @@ class BindingRow(Frame):
         self._root().event_generate("<<advance>>")
 
 
-
 class MyRoot(Tk):
 
     """To contain data that needs to be accessible by everyone"""
@@ -245,8 +266,6 @@ class MyRoot(Tk):
         for x in range(num):
             self.mw.bw.add_button()
 
-
-
     def append_action(self, fx, args):
 
         """Record a function and args to be applied to a picture caption"""
@@ -259,7 +278,7 @@ class MyRoot(Tk):
     def back(self, e):
 
         self.mapfile.write("<<UNDO>>\n") # easier than trying to step back through the file
-        self.mw.pw.back()
+        self.mw.previous()
 
     def apply(self):
 
