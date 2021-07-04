@@ -277,20 +277,25 @@ class MyRoot(Tk):
 
     def back(self, e):
 
-        self.mapfile.write("<<UNDO>>\n") # easier than trying to step back through the file
+        self.mapfile.write("<<UNDO>>\n")  # easier than trying to step back through the file
         self.mw.previous()
 
     def apply(self):
 
         """The function that goes through self.mapping and actually carries out all the functions"""
 
+        for x in self.mw.gen.history:
+            x[0].close()  # close all open file handles so the files can be moved
+
         print("Applying functions...")
         for x in self.mapping:
             try:
-                x[0](*x[1:])
+                func = globals()[x[0]]
+                func(*x[1:])
             except Exception as e:
                 print(e)
         print("done")
+        self.mapping = []  # clear list if the user wants to carry on
 
 
 
